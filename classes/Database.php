@@ -1,20 +1,49 @@
 <?php
-// database.php
-declare(strict_types=1);
-
-function pdo(): PDO {
-    static $pdo = null;
-    if ($pdo instanceof PDO) {
-        return $pdo;
+/**
+ * Database connection class
+ */
+class Database 
+{
+    private $connection;
+    private $config;
+    
+    public function __construct(array $config) 
+    {
+        $this->config = $config;
+        $this->connect();
     }
-    $config = require __DIR__ . '/../config.php';
-    $db = $config['db'];
-
-    $pdo = new PDO(
-        $db['dsn'],
-        $db['user'],
-        $db['pass'],
-        $db['options']
-    );
-    return $pdo;
+    
+    private function connect() 
+    {
+        try {
+            $this->connection = new PDO(
+                $this->config['dsn'],
+                $this->config['user'],
+                $this->config['pass'],
+                $this->config['options']
+            );
+        } catch (PDOException $e) {
+            throw new Exception("Database connection failed: " . $e->getMessage());
+        }
+    }
+    
+    public function getConnection(): PDO 
+    {
+        return $this->connection;
+    }
+    
+    public function beginTransaction(): bool 
+    {
+        return $this->connection->beginTransaction();
+    }
+    
+    public function commit(): bool 
+    {
+        return $this->connection->commit();
+    }
+    
+    public function rollback(): bool 
+    {
+        return $this->connection->rollback();
+    }
 }

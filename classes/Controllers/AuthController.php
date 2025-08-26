@@ -1,32 +1,95 @@
 <?php
-declare(strict_types=1);
-
-require_once __DIR__ . '/database.php';
-require_once __DIR__ . '/authService.php';
-
-session_start();
-$pdo = pdo();
-$authService = new AuthService($pdo);
-
-$action = $_GET['action'] ?? '';
-
-switch ($action) {
-    case 'get-csrf':
-        $csrf = $authService->generateCsrfToken();
-        echo json_encode(['csrf_token' => $csrf]);
-        break;
-
-    case 'login':
-        $data = json_decode(file_get_contents('php://input'), true) ?? $_POST;
-        $authService->login($data);
-        break;
-
-    case 'logout':
-        $authService->logout();
-        break;
-
-    default:
-        http_response_code(404);
-        echo json_encode(['success' => false, 'message' => 'Not Found']);
-        break;
+/**
+ * Authentication controller
+ */
+class AuthController 
+{
+    private $authService;
+    private $userRepository;
+    private $auditLogger;
+    
+    public function __construct(AuthService $authService, UserRepository $userRepository, AuditLogger $auditLogger) 
+    {
+        $this->authService = $authService;
+        $this->userRepository = $userRepository;
+        $this->auditLogger = $auditLogger;
+    }
+    
+    public function showLogin(): void 
+    {
+        // If already logged in, redirect to contacts
+        if ($this->authService->isLoggedIn()) {
+            header('Location: index.php?action=contacts.list');
+            exit;
+        }
+        
+        $title = 'Login';
+        $content = 'views/login.php';
+        $hideNavbar = true;
+        $csrfToken = $this->authService->generateCsrfToken();
+        
+        include 'views/layout.php';
+    }
+    
+    public function login(): void 
+    {
+        $errors = [];
+        
+        // Validate CSRF token
+        if (!isset($_POST['_token']) || !$this->authService->validateCsrfToken($_POST['_token'])) {
+            $errors['general'] = 'Invalid security token. Please try again.';
+        }
+        
+        $email = trim($_POST['email'] ?? '');
+        $password = $_POST['password'] ?? '';
+        
+        // Basic validation
+        if (empty($email)) {
+            $errors['email'] = 'Email is required';
+        }
+        
+        if (empty($password)) {
+            $errors['password'] = 'Password is required';
+        }
+        
+        // Attempt login if no validation errors
+        if (empty($errors)) {
+            if ($this->authService->login($email, $password)) {
+                // Log successful login
+                $user = $this->authService->getCurrentUser();
+                $this->auditLogger->log('login', 'user', $user['id'], ['ip' => $_SERVER['REMOTE_ADDR'] ?? 'Unknown'], $user);
+                
+                // Redirect to contacts list
+                header('Location: index.php?action=contacts.list');
+                exit;
+            } else {
+                $errors['general'] = 'Invalid email or password';
+                
+                // Log failed login attempt
+                $user = $this->userRepository->findByEmail($email);
+                if ($user) {
+                    $this->auditLogger->log('login_failed', 'user', $user['id'], ['ip' => $_SERVER['REMOTE_ADDR'] ?? 'Unknown'], $user);
+                }
+            }
+        }
+        
+        // Show login form with errors
+        $title = 'Login';
+        $content = 'views/login.php';
+        $hideNavbar = true;
+        $csrfToken = $this->authService->generateCsrfToken();
+        
+        include 'views/layout.php';
+    }
+    
+    public function logout(): void 
+    {
+        // Log logout
+        $user = $this->authService->getCurrentUser();
+        if ($user) {
+            $this->auditLogger->log('logout', 'user', $user['id'], ['ip' => $_SERVER['REMOTE_ADDR'] ?? 'Unknown'], $user);
+        }
+        
+        $this->authService->logout();
+    }
 }

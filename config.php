@@ -11,4 +11,13 @@ return [
         ],
     ],
     'page_size' => 10,
+    'app' => [
+        'name' => 'CRM RBAC System',
+        'version' => '1.0.0',
+        'environment' => 'development'
+    ],
+    'security' => [
+        'session_lifetime' => 86400, // 24 hours
+        'csrf_token_name' => '_token'
+    ]
 ];

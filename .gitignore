@@ -2,3 +2,5 @@ file.php
 hash.php
 php.ini
 ~landing.html
+views/landing.html
+views/dashboard.php

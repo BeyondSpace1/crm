@@ -1,93 +1,101 @@
 <?php
-// repositories/UserRepository.php
-require_once __DIR__ . '/../database.php';
-require_once __DIR__ . '/../entities/User.php';
-
-class UserRepository {
-
-    public function findByUsername(string $username): ?User {
-        $stmt = pdo()->prepare("SELECT * FROM users WHERE username = :username LIMIT 1");
-        $stmt->execute(['username' => $username]);
-        $data = $stmt->fetch(PDO::FETCH_ASSOC);
-        if ($data) {
-            return new User($data['id'], $data['username'], $data['email'], $data['password'], $data['role']);
-        }
-        return null;
+/**
+ * User repository for database operations
+ */
+class UserRepository 
+{
+    private $db;
+    
+    public function __construct(PDO $db) 
+    {
+        $this->db = $db;
     }
-
-    public function findById(int $id): ?User {
-        $stmt = pdo()->prepare("SELECT * FROM users WHERE id = :id LIMIT 1");
-        $stmt->execute(['id' => $id]);
-        $data = $stmt->fetch(PDO::FETCH_ASSOC);
-        if ($data) {
-            return new User($data['id'], $data['username'], $data['email'], $data['password'], $data['role']);
-        }
-        return null;
-    }
-
-    public function startSession(User $user) {
-        $_SESSION['user'] = [
-            'id'       => $user->id,
-            'username' => $user->username,
-            'role'     => $user->role
-        ];
-    }
-
-    public function hasRole(string $role): bool {
-        return isset($_SESSION['user']['role']) && $_SESSION['user']['role'] === $role;
-    }
-
-    public function hasAnyRole(array $roles): bool {
-        return isset($_SESSION['user']['role']) && in_array($_SESSION['user']['role'], $roles);
-    }
-
-    public function requireRole(string $role) {
-        if (!$this->hasRole($role)) {
-            http_response_code(403);
-            exit(json_encode(['error' => 'Access denied']));
-        }
-    }
-
-    public function requireAnyRole(array $roles) {
-        if (!$this->hasAnyRole($roles)) {
-            http_response_code(403);
-            exit(json_encode(['error' => 'Access denied']));
-        }
-    }
-
-     public static function findByEmail(string $email): ?User {
-        $stmt = pdo()->prepare("SELECT * FROM users WHERE email = ?");
+    
+    public function findByEmail(string $email): ?array 
+    {
+        $stmt = $this->db->prepare("SELECT * FROM users WHERE email = ?");
         $stmt->execute([$email]);
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
-
-        if ($row) {
-            return new User($row['id'], $row['username'], $row['email'], $row['password'], $row['role']);
-        }
-        return null;
+        
+        $result = $stmt->fetch();
+        return $result ?: null;
     }
-
-    public static function getById(int $id): ?User {
-        $stmt = pdo()->prepare("SELECT * FROM users WHERE id = ?");
+    
+    public function findById(int $id): ?array 
+    {
+        $stmt = $this->db->prepare("SELECT * FROM users WHERE id = ?");
         $stmt->execute([$id]);
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
-
-        if ($row) {
-            return new User($row['id'], $row['username'], $row['email'], $row['password'], $row['role']);
-        }
-        return null;
+        
+        $result = $stmt->fetch();
+        return $result ?: null;
     }
-
-    public static function checkAccess(string $requiredRole): bool {
-        if (!isset($_SESSION['user'])) return false;
-
-        $roleHierarchy = [
-            'viewer' => 1,
-            'editor' => 2,
-            'admin' => 3
-        ];
-
-        $currentRole = $_SESSION['user']->role;
-
-        return $roleHierarchy[$currentRole] >= $roleHierarchy[$requiredRole];
+    
+    public function create(User $user): int 
+    {
+        $sql = "INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)";
+        $stmt = $this->db->prepare($sql);
+        
+        $stmt->execute([
+            $user->getName(),
+            $user->getEmail(),
+            $user->getPassword(),
+            $user->getRole()
+        ]);
+        
+        return (int) $this->db->lastInsertId();
+    }
+    
+    public function update(User $user): bool 
+    {
+        $sql = "UPDATE users SET name = ?, email = ?, role = ?";
+        $params = [$user->getName(), $user->getEmail(), $user->getRole()];
+        
+        // Only update password if it's set
+        if (!empty($user->getPassword())) {
+            $sql .= ", password = ?";
+            $params[] = $user->getPassword();
+        }
+        
+        $sql .= " WHERE id = ?";
+        $params[] = $user->getId();
+        
+        $stmt = $this->db->prepare($sql);
+        return $stmt->execute($params);
+    }
+    
+    public function delete(int $id): bool 
+    {
+        $stmt = $this->db->prepare("DELETE FROM users WHERE id = ?");
+        return $stmt->execute([$id]);
+    }
+    
+    public function findAll(int $limit = 50, int $offset = 0): array 
+    {
+        $sql = "SELECT * FROM users ORDER BY created_at DESC LIMIT ? OFFSET ?";
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute([$limit, $offset]);
+        
+        return $stmt->fetchAll();
+    }
+    
+    public function countAll(): int 
+    {
+        $stmt = $this->db->query("SELECT COUNT(*) FROM users");
+        return (int) $stmt->fetchColumn();
+    }
+    
+    public function emailExists(string $email, ?int $excludeId = null): bool 
+    {
+        $sql = "SELECT COUNT(*) FROM users WHERE email = ?";
+        $params = [$email];
+        
+        if ($excludeId !== null) {
+            $sql .= " AND id != ?";
+            $params[] = $excludeId;
+        }
+        
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+        
+        return $stmt->fetchColumn() > 0;
     }
 }
